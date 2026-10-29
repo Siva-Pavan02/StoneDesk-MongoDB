@@ -1,0 +1,11 @@
+{
+  "name": "stonedesk",
+  "version": "1.0.0",
+  "private": true,
+  "description": "StoneDesk — Loads and Bills with mock server",
+  "scripts": {
+    "build": "cd Frontend && npm run build",
+    "dev": "node server.js",
+    "start": "node server.js"
+  }
+}

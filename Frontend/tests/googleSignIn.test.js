@@ -1,0 +1,117 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+function browser(t, search = '') {
+  const original = { window: globalThis.window, sessionStorage: globalThis.sessionStorage, fetch: globalThis.fetch };
+  const storage = new Map();
+  globalThis.sessionStorage = { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
+  globalThis.window = { location: { origin: 'http://localhost:5173', search, assign(url) { this.assigned = url; } }, history: { replaceState(_a, _b, path) { this.path = path; } } };
+  t.after(() => Object.assign(globalThis, original));
+  return storage;
+}
+
+test('Google start generates a PKCE challenge and same-origin callback', async t => {
+  const storage = browser(t);
+  globalThis.fetch = async () => Response.json({ url: 'https://project.supabase.co' });
+  const { beginGoogleSignIn } = await import('../src/lib/googleSignIn.js?start');
+  await beginGoogleSignIn();
+  const pending = JSON.parse(storage.get('stonedesk.google.pending'));
+  const target = new URL(window.location.assigned);
+  assert.equal(target.origin, 'https://project.supabase.co');
+  assert.equal(target.searchParams.get('provider'), 'google');
+  assert.equal(target.searchParams.get('code_challenge_method'), 's256');
+  assert.notEqual(target.searchParams.get('code_challenge'), pending.verifier);
+  assert.equal(new URL(target.searchParams.get('redirect_to')).searchParams.get('google_callback'), pending.state);
+});
+
+test('Google callback exchanges once and clears URL and verifier', async t => {
+  const storage = browser(t, '?google_callback=expected&code=one-use');
+  storage.set('stonedesk.google.pending', JSON.stringify({ state: 'expected', verifier: 'v'.repeat(43), started: Date.now() }));
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => { calls++; assert.equal(JSON.parse(options.body).code, 'one-use'); return Response.json({ user: { id: 'user' } }); };
+  const { finishGoogleSignIn } = await import('../src/lib/googleSignIn.js?callback');
+  const [a, b] = await Promise.all([finishGoogleSignIn(), finishGoogleSignIn()]);
+  assert.equal(a.user.id, b.user.id);
+  assert.equal(calls, 1);
+  assert.equal(storage.size, 0);
+  assert.equal(window.history.path, '/');
+});
+
+test('Google callback rejects mismatched state without calling the server', async t => {
+  const storage = browser(t, '?google_callback=attacker&code=code');
+  storage.set('stonedesk.google.pending', JSON.stringify({ state: 'expected', verifier: 'v'.repeat(43), started: Date.now() }));
+  globalThis.fetch = () => { throw new Error('Must not call'); };
+  const { finishGoogleSignIn } = await import('../src/lib/googleSignIn.js?invalid');
+  await assert.rejects(finishGoogleSignIn(), /expired/);
+  assert.equal(storage.size, 0);
+});
+
+test('Google callback accepts Site URL fallback with the original PKCE verifier', async t => {
+  const storage = browser(t, '?code=one-use');
+  storage.set('stonedesk.google.pending', JSON.stringify({ state: 'expected', verifier: 'v'.repeat(43), started: Date.now() }));
+  globalThis.fetch = async (_url, options) => {
+    assert.equal(JSON.parse(options.body).verifier, 'v'.repeat(43));
+    return Response.json({ needsSignup: true });
+  };
+  const { finishGoogleSignIn } = await import('../src/lib/googleSignIn.js?fallback');
+  assert.equal((await finishGoogleSignIn()).needsSignup, true);
+});
+
+test('Google provider errors in the fragment are handled without exposing descriptions', async t => {
+  browser(t);
+  window.location.hash = '#error=server_error&error_code=unexpected_failure&error_description=sensitive';
+  globalThis.fetch = () => { throw new Error('Must not call'); };
+  const { finishGoogleSignIn } = await import('../src/lib/googleSignIn.js?fragment-error');
+  await assert.rejects(finishGoogleSignIn(), error => {
+    assert.match(error.message, /Supabase Auth logs/);
+    assert.doesNotMatch(error.message, /sensitive/);
+    return true;
+  });
+  assert.equal(window.history.path, '/');
+});
+
+test('A callback without its browser verifier cannot create a session', async t => {
+  browser(t, '?code=one-use');
+  globalThis.fetch = () => { throw new Error('Must not call'); };
+  const { finishGoogleSignIn } = await import('../src/lib/googleSignIn.js?missing-pending');
+  await assert.rejects(finishGoogleSignIn(), /same browser tab/);
+});
+
+test('An abandoned Google attempt never redirects or stores pending state', async t => {
+  const storage = browser(t);
+  globalThis.fetch = async () => Response.json({ url: 'https://project.supabase.co' });
+  const { beginGoogleSignIn } = await import('../src/lib/googleSignIn.js?aborted');
+  const controller = new AbortController();
+  controller.abort();
+  await beginGoogleSignIn({ signal: controller.signal });
+  assert.equal(window.location.assigned, undefined);
+  assert.equal(storage.has('stonedesk.google.pending'), false);
+});
+
+test('in-app browsers are detected; regular mobile and desktop browsers are not', async () => {
+  const { isEmbeddedBrowser } = await import('../src/lib/googleSignIn.js?embedded');
+  const embedded = [
+    'Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [FBAN/FBIOS;FBAV/440.0]',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 300.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
+    'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Mobile Safari/537.36 WhatsApp/2.24',
+  ];
+  const regular = [
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/121.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Mobile Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36',
+  ];
+  for (const ua of embedded) assert.equal(isEmbeddedBrowser(ua), true, ua);
+  for (const ua of regular) assert.equal(isEmbeddedBrowser(ua), false, ua);
+});
+
+test('Google start in an in-app browser explains next steps without contacting the server or redirecting', async t => {
+  const storage = browser(t);
+  globalThis.fetch = () => { throw new Error('Must not call'); };
+  const { beginGoogleSignIn, EMBEDDED_BROWSER_MESSAGE } = await import('../src/lib/googleSignIn.js?embedded-start');
+  await assert.rejects(beginGoogleSignIn({ userAgent: 'Mozilla/5.0 (Linux; Android 13; wv) AppleWebKit/537.36 Chrome/120.0 Mobile Safari/537.36' }), { message: EMBEDDED_BROWSER_MESSAGE });
+  assert.equal(window.location.assigned, undefined);
+  assert.equal(storage.size, 0);
+});
