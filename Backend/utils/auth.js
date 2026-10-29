@@ -8,7 +8,7 @@ const derive = promisify(scrypt);
 const userSelect = { id: true, organizationId: true, name: true, email: true,
   role: true, active: true, supabaseUserId: true, passwordLogin: true };
 const cookieName = 'stonedesk_session';
-const cookieOptions = () => ({ httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', path: '/' });
+const cookieOptions = () => ({ httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', path: '/' });
 const hash = token => createHash('sha256').update(token).digest('hex');
 const tokenFrom = req => (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1);
 
@@ -64,14 +64,15 @@ function publicUser(user) {
 function allowedOrigin(origin, req) {
   if (!origin) return true;
   const configured = process.env.APP_ORIGIN;
-  if (origin === configured) return true;
-  if (process.env.NODE_ENV === 'production') return false;
+  if (configured && origin === configured) return true;
   try {
     const url = new URL(origin);
     if (url.origin !== origin || !['http:', 'https:'].includes(url.protocol)) return false;
-    // Dev phones use the Vite proxy on the same LAN origin. They never need
-    // a database password or localhost API address in their browser.
-    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || origin === `${req.protocol || 'http'}://${req.get?.('host')}`;
+    const host = req.get?.('host') || req.headers?.host || '';
+    const proto = req.headers?.['x-forwarded-proto'] || req.protocol || 'http';
+    if (origin === `${proto}://${host}` || host.includes(url.host)) return true;
+    if (['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) || url.hostname.endsWith('.run.app')) return true;
+    return false;
   } catch { return false; }
 }
 

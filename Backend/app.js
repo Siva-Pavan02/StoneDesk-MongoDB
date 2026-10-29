@@ -59,14 +59,24 @@ app.use('/uploads', auth.requireSession, auth.requireActive, require('./utils/re
 }));
 
 app.get(['/healthz', '/api/healthz'], (req, res) => res.json({ ok: true }));
-if (process.env.SERVE_FRONTEND === 'true') {
-  const path = require('node:path');
-  const directory = path.join(__dirname, '../Frontend/dist');
-  const headers = JSON.parse(require('node:fs').readFileSync(path.join(directory, 'security-headers.json'), 'utf8'));
-  app.use(['/api', '/uploads'], (req, res) => res.status(404).json({ error: 'Not found' }));
-  app.use((req, res, next) => { res.set(headers); next(); });
-  app.use(express.static(directory, { index: false }));
-  app.get('/{*page}', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(directory, 'index.html')); });
+const path = require('node:path');
+const fs = require('node:fs');
+const distDirectory = path.join(__dirname, '../Frontend/dist');
+
+if (fs.existsSync(distDirectory)) {
+  let headers = {};
+  try {
+    headers = JSON.parse(fs.readFileSync(path.join(distDirectory, 'security-headers.json'), 'utf8'));
+  } catch (_) {}
+  app.use((req, res, next) => {
+    if (Object.keys(headers).length) res.set(headers);
+    next();
+  });
+  app.use(express.static(distDirectory, { index: false }));
+  app.get('/{*page}', (req, res) => {
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(path.join(distDirectory, 'index.html'));
+  });
 } else {
   app.get('/', (req, res) => res.send('StoneDesk Server Running'));
 }

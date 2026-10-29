@@ -7,7 +7,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID, randomBytes, createHash } = require("node:crypto");
 const zxcvbn = require("zxcvbn");
-const { Prisma } = require("@prisma/client");
+class Decimal {
+  constructor(val) { this.val = Number(val); }
+  toFixed(digits) { return this.val.toFixed(digits); }
+  lessThanOrEqualTo(other) { return this.val <= (other?.val ?? Number(other)); }
+  greaterThan(other) { return this.val > (other?.val ?? Number(other)); }
+}
+const Prisma = { Decimal };
 const calc = require("../utils/pilotCalculations");
 const { round2 } = require("../utils/dispatchCalculations");
 // Shared with the real controller so money rounding and status cannot drift.

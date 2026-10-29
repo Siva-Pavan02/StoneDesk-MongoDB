@@ -13,9 +13,8 @@ export function contentPolicy(apiBase = '') {
 }
 export function securityHeaders(apiBase) {
   return {
-    'Content-Security-Policy': contentPolicy(apiBase) + "; frame-ancestors 'none'",
+    'Content-Security-Policy': contentPolicy(apiBase),
     'X-Content-Type-Options': 'nosniff',
-    'X-Frame-Options': 'DENY',
     'Referrer-Policy': 'no-referrer',
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
   };

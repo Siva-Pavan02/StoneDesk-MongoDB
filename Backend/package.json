@@ -8,7 +8,6 @@
     "dev": "node --watch server.js",
     "mock": "node mock/server.js",
     "test": "node --test --test-concurrency=1 tests/*.test.js",
-    "postinstall": "prisma generate",
     "db:check": "node scripts/checkDatabase.js"
   },
   "keywords": [],
@@ -19,22 +18,15 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@prisma/client": "^6.19.3",
     "@supabase/supabase-js": "2.117.3",
     "@upstash/ratelimit": "^2.2.0",
     "@upstash/redis": "^1.39.0",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
+    "mongoose": "^9.11.4",
     "nodemailer": "^10.0.16",
-    "pg": "^8.23.1",
-    "prisma": "^6.19.3",
     "sharp": "^0.35.5",
     "zxcvbn": "^4.4.2"
-  },
-  "overrides": {
-    "@prisma/config": {
-      "deepmerge-ts": "8.0.0"
-    }
   }
 }

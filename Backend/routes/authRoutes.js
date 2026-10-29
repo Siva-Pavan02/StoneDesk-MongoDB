@@ -227,8 +227,7 @@ router.post("/signup", auth.authLimit, async (req, res, next) => {
           break;
         } catch (error) {
           if (
-            error.code !== "P2002" ||
-            !String(error.meta?.target).includes("organizationId") ||
+            (error.code !== 11000 && error.code !== "P2002") ||
             attempt === 4
           )
             throw error;
@@ -251,7 +250,7 @@ router.post("/signup", auth.authLimit, async (req, res, next) => {
         organizationCode: organization.organizationId,
       });
   } catch (err) {
-    if (err.code === "P2002")
+    if (err.code === 11000 || err.code === "P2002")
       return res
         .status(409)
         .json({ error: "Unable to create this account. Try signing in." });

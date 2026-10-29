@@ -52,7 +52,7 @@ exports.createDraft = async (req, res, next) => {
     await rememberDispatchReferences(prisma, req.user.organizationId, dispatch.logistics);
     res.json(dispatch);
   } catch (err) {
-    if (err.code === 'P2002' && req.body.clientRequestId) {
+    if ((err.code === 11000 || err.code === 'P2002') && req.body.clientRequestId) {
       try {
         const existing = await prisma.dispatch.findFirst({ where: { clientRequestId: req.body.clientRequestId, organizationId: req.user.organizationId } });
         if (existing) return res.json(existing);
